@@ -1,6 +1,6 @@
 """
-Pytest configuration and test fixtures for FinSight foundation tests.
-Uses SQLite in-memory database with StaticPool so the same database is shared across connections.
+Pytest configuration and test fixtures for FinSight foundation and engine tests.
+Uses SQLite in-memory database with per-test schema recreation for complete isolation.
 """
 
 import pytest
@@ -26,31 +26,20 @@ test_engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_database():
-    """Creates all database tables once for the test session."""
-    # Ensure all models are registered
-    import backend.models  # noqa: F401
-    Base.metadata.create_all(bind=test_engine)
-    yield
-    Base.metadata.drop_all(bind=test_engine)
-
-
 @pytest.fixture(scope="function")
 def db_session() -> Generator[Session, None, None]:
     """
-    Provides a transactional database session for an individual test.
-    Rolls back any changes made during the test.
+    Provides an isolated transactional database session for an individual test.
+    Creates clean tables before each test and drops all tables afterwards.
     """
-    connection = test_engine.connect()
-    transaction = connection.begin()
-    session = TestingSessionLocal(bind=connection)
+    import backend.models  # noqa: F401
+    Base.metadata.create_all(bind=test_engine)
+    session = TestingSessionLocal()
 
     yield session
 
     session.close()
-    transaction.rollback()
-    connection.close()
+    Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture(scope="function")
