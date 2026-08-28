@@ -65,6 +65,8 @@ class TransactionResponse(BaseModel):
     category: str
     merchant_name: Optional[str] = None
     description: Optional[str] = None
+    source: str = "bank"
+    reference_id: Optional[str] = None
     transaction_date: datetime
     is_suspicious: bool = False
 
@@ -99,4 +101,122 @@ class DashboardOverviewResponse(BaseModel):
     savings: Decimal = Field(..., description="Compatibility alias for monthly_surplus (cash-flow surplus, not savings-account deposits)")
     upcoming_bills: Decimal = Field(..., description="Total unpaid bills due within 30 days")
     goals: List[GoalResponse] = Field(..., description="List of active savings and financial goals")
+
+
+# --- Day 4B Ingestion Schemas ---
+
+class VoiceTransactionRequest(BaseModel):
+    """Request payload from voice/AI layer to ingest a structured transaction."""
+    user_id: int = Field(..., description="ID of the user")
+    account_id: Optional[int] = Field(None, description="Optional account ID (auto-assigns to active account if None)")
+    amount: Decimal = Field(..., gt=0, description="Positive transaction amount")
+    transaction_type: str = Field(..., description="'expense' or 'income'")
+    category: str = Field("Other", description="Transaction category (Food, Transport, Shopping, Bills, etc.)")
+    merchant_name: Optional[str] = Field(None, description="Payee / Merchant name")
+    description: Optional[str] = Field(None, description="Transaction description or voice note")
+    transaction_date: Optional[datetime] = Field(None, description="Transaction date/time (defaults to now)")
+
+
+class BankConnectRequest(BaseModel):
+    """Request payload to connect a user's account to a mock financial institution."""
+    user_id: int = Field(..., description="ID of the user")
+    institution_name: str = Field("HDFC Bank Mock", description="Mock bank institution name")
+    account_id: Optional[int] = Field(None, description="Optional account ID to link")
+
+
+class BankConnectResponse(BaseModel):
+    """Response model for mock bank connection."""
+    status: str
+    institution_name: str
+    user_id: int
+    account_id: int
+    message: str
+
+
+class SkippedTransactionItem(BaseModel):
+    """Details of a skipped duplicate transaction."""
+    reference_id: Optional[str] = None
+    merchant_name: Optional[str] = None
+    amount: str
+    reason: Optional[str] = None
+    existing_transaction_id: Optional[int] = None
+
+
+class BankSyncRequest(BaseModel):
+    """Request payload to trigger mock bank feed synchronization."""
+    user_id: int = Field(..., description="ID of the user")
+    account_id: Optional[int] = Field(None, description="Optional account ID to sync")
+
+
+class BankSyncResponse(BaseModel):
+    """Response model for bank feed synchronization."""
+    status: str
+    user_id: int
+    account_id: int
+    imported_count: int
+    duplicate_count: int
+    skipped_count: int
+    imported_transactions: List[TransactionResponse]
+    skipped_transactions: List[SkippedTransactionItem]
+
+
+class StatementCandidateItem(BaseModel):
+    """Single extracted statement transaction candidate."""
+    reference_id: Optional[str] = Field(None, description="Unique reference ID extracted from statement")
+    amount: Decimal = Field(..., gt=0, description="Positive transaction amount")
+    transaction_type: str = Field("expense", description="'expense' or 'income'")
+    category: str = Field("Other", description="Transaction category")
+    merchant_name: Optional[str] = Field(None, description="Payee / Merchant name")
+    description: Optional[str] = Field(None, description="Transaction description")
+    transaction_date: datetime = Field(..., description="Extracted transaction timestamp")
+
+
+class StatementEvaluatedCandidate(BaseModel):
+    """Candidate transaction with duplicate evaluation status."""
+    candidate_id: str
+    reference_id: Optional[str] = None
+    amount: Decimal
+    transaction_type: str
+    category: str
+    merchant_name: Optional[str] = None
+    description: Optional[str] = None
+    transaction_date: datetime
+    is_duplicate: bool = False
+    duplicate_reason: Optional[str] = None
+
+
+class StatementUploadRequest(BaseModel):
+    """Request payload uploading extracted candidates from a statement."""
+    user_id: int = Field(..., description="ID of the user")
+    account_id: Optional[int] = Field(None, description="Target account ID")
+    filename: str = Field(..., description="Original statement filename")
+    extracted_candidates: List[StatementCandidateItem] = Field(default_factory=list, description="Extracted transaction candidate list")
+
+
+class StatementUploadResponse(BaseModel):
+    """Response model staging statement candidates for user confirmation."""
+    document_id: int
+    filename: str
+    total_candidates: int
+    valid_candidates_count: int
+    duplicate_candidates_count: int
+    candidates: List[StatementEvaluatedCandidate]
+
+
+class ConfirmTransactionsRequest(BaseModel):
+    """Request payload to confirm and persist validated statement candidates."""
+    user_id: int = Field(..., description="ID of the user")
+    account_id: Optional[int] = Field(None, description="Target account ID")
+    document_id: Optional[int] = Field(None, description="Optional associated document ID")
+    candidates: List[StatementCandidateItem] = Field(..., min_length=1, description="List of candidates to confirm and persist")
+
+
+class ConfirmTransactionsResponse(BaseModel):
+    """Response model confirming persisted transactions."""
+    status: str
+    confirmed_count: int
+    skipped_duplicates_count: int
+    transactions: List[TransactionResponse]
+    skipped_items: List[SkippedTransactionItem]
+
 

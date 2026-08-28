@@ -39,6 +39,14 @@ VALID_CATEGORIES: Set[str] = {
     "Other",
 }
 
+VALID_SOURCES: Set[str] = {
+    "bank",
+    "statement",
+    "voice",
+    "payment",
+    "manual",
+}
+
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -52,6 +60,8 @@ class Transaction(Base):
     category = Column(String(50), nullable=False)  # Food, Transport, Shopping, Bills, etc.
     merchant_name = Column(String(255), nullable=True)
     description = Column(String(500), nullable=True)
+    source = Column(String(50), nullable=False, default="bank")  # 'bank', 'statement', 'voice', 'payment', 'manual'
+    reference_id = Column(String(255), nullable=True, index=True)  # External/statement/bank transaction ID
     transaction_date = Column(DateTime, index=True, nullable=False, default=datetime.utcnow)
     is_suspicious = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -72,8 +82,14 @@ class Transaction(Base):
             raise ValueError(f"Invalid category '{value}'. Must be one of: {VALID_CATEGORIES}")
         return value
 
+    @validates("source")
+    def validate_source(self, key: str, value: str) -> str:
+        if value not in VALID_SOURCES:
+            raise ValueError(f"Invalid source '{value}'. Must be one of: {VALID_SOURCES}")
+        return value
+
     def __repr__(self) -> str:
         return (
             f"<Transaction(id={self.id}, user_id={self.user_id}, account_id={self.account_id}, "
-            f"amount={self.amount}, category='{self.category}', date='{self.transaction_date}')>"
+            f"amount={self.amount}, category='{self.category}', source='{self.source}', date='{self.transaction_date}')>"
         )

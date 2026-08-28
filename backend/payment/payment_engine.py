@@ -178,6 +178,7 @@ def execute_payment(
         category="Other",
         merchant_name=preview["recipient_name"],
         description=f"Simulated payment to {preview['recipient_name']}",
+        source="payment",
         transaction_date=datetime.now(),
         is_suspicious=False,
     )
