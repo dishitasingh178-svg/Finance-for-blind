@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db import get_db, init_db
-from backend.routers import dashboard, goals
+from backend.routers import dashboard, transactions, goals
 
 
 @asynccontextmanager
@@ -40,6 +40,7 @@ app.add_middleware(
 
 # Register Routers
 app.include_router(dashboard.router)
+app.include_router(transactions.router)
 app.include_router(goals.router)
 
 

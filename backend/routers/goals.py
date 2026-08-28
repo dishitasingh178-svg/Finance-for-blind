@@ -1,23 +1,148 @@
 """
 Goals Router for FinSight.
-Provides endpoints for goal tracking and projections.
+
+Provides CRUD endpoints for financial goals and integrates with the deterministic
+financial engine for goal projection timelines.
 """
 
-from fastapi import APIRouter, Depends
+from decimal import Decimal
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
+
 from backend.db import get_db
+from backend.models import User, Goal
+from backend.engine import project_goal_completion
+from backend.schemas import (
+    GoalCreateRequest,
+    GoalUpdateRequest,
+    GoalResponse,
+    GoalWithProjectionResponse,
+    GoalProjection,
+)
 
-router = APIRouter(prefix="/api/v1/goals", tags=["Goals"])
+router = APIRouter(tags=["Goals"])
 
 
-@router.get("/")
-def list_goals(db: Session = Depends(get_db)):
+@router.get("/goals", response_model=List[GoalResponse], summary="List User Goals")
+@router.get("/api/v1/goals", response_model=List[GoalResponse], include_in_schema=False)
+def list_goals(
+    user_id: int = Query(..., description="ID of the user to retrieve goals for"),
+    db: Session = Depends(get_db),
+) -> List[GoalResponse]:
     """
-    Returns list of financial goals.
-    (Endpoint scaffold for the foundation step).
+    Retrieves all financial goals belonging to the specified user.
     """
-    return {
-        "status": "active",
-        "goals": [],
-        "message": "FinSight Goals API scaffold. Full calculation integration planned for Day 2.",
-    }
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with id {user_id} not found.",
+        )
+
+    goals = (
+        db.query(Goal)
+        .filter(Goal.user_id == user_id)
+        .order_by(Goal.id.asc())
+        .all()
+    )
+    return [GoalResponse.model_validate(g) for g in goals]
+
+
+@router.post("/goals", response_model=GoalResponse, status_code=status.HTTP_201_CREATED, summary="Create Goal")
+@router.post("/api/v1/goals", response_model=GoalResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
+def create_goal(
+    payload: GoalCreateRequest,
+    db: Session = Depends(get_db),
+) -> GoalResponse:
+    """
+    Creates a new financial goal with Decimal-safe validation.
+
+    Validation rules:
+    - User must exist.
+    - target_amount must be > 0.
+    - monthly_contribution must be > 0.
+    - current_amount initializes to 0.00.
+    - status initializes to 'active'.
+    """
+    user = db.query(User).filter(User.id == payload.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with id {payload.user_id} not found.",
+        )
+
+    if payload.target_amount <= Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="target_amount must be greater than zero.",
+        )
+
+    if payload.monthly_contribution <= Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="monthly_contribution must be greater than zero.",
+        )
+
+    new_goal = Goal(
+        user_id=payload.user_id,
+        name=payload.name,
+        target_amount=payload.target_amount,
+        current_amount=Decimal("0.00"),
+        monthly_contribution=payload.monthly_contribution,
+        currency="INR",
+        target_date=payload.target_date,
+        status="active",
+    )
+    db.add(new_goal)
+    db.commit()
+    db.refresh(new_goal)
+
+    return GoalResponse.model_validate(new_goal)
+
+
+@router.patch("/goals/{id}", response_model=GoalWithProjectionResponse, summary="Update Goal Contribution & Project")
+@router.patch("/api/v1/goals/{id}", response_model=GoalWithProjectionResponse, include_in_schema=False)
+def update_goal_contribution(
+    id: int,
+    payload: GoalUpdateRequest,
+    db: Session = Depends(get_db),
+) -> GoalWithProjectionResponse:
+    """
+    Updates the monthly contribution for an existing goal and returns the updated goal
+    along with its deterministic completion projection from project_goal_completion().
+    """
+    goal = db.query(Goal).filter(Goal.id == id).first()
+    if not goal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Goal with id {id} not found.",
+        )
+
+    # Enforce user isolation if user_id was provided
+    if payload.user_id is not None and goal.user_id != payload.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: Goal {id} does not belong to user {payload.user_id}.",
+        )
+
+    if payload.monthly_contribution <= Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="monthly_contribution must be greater than zero.",
+        )
+
+    goal.monthly_contribution = payload.monthly_contribution
+    db.commit()
+    db.refresh(goal)
+
+    # Compute projection using the deterministic financial engine
+    projection_data = project_goal_completion(goal.id, db)
+
+    return GoalWithProjectionResponse(
+        goal=GoalResponse.model_validate(goal),
+        projection=GoalProjection(
+            current_months_remaining=projection_data["current_months_remaining"],
+            hypothetical_months_remaining=projection_data.get("hypothetical_months_remaining"),
+        ),
+    )
