@@ -35,3 +35,25 @@ def db_session() -> Generator[Session, None, None]:
 
     session.close()
     Base.metadata.drop_all(bind=test_engine)
+
+
+@pytest.fixture(scope="function")
+def client(db_session: Session):
+    """
+    Provides a FastAPI TestClient with the database dependency overridden for payment tests.
+    """
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.db import get_db
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+

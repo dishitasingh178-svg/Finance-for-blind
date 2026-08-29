@@ -220,3 +220,74 @@ class ConfirmTransactionsResponse(BaseModel):
     skipped_items: List[SkippedTransactionItem]
 
 
+# --- Day 5 AI & Payment Schemas ---
+
+class AskRequest(BaseModel):
+    """Request payload for natural language and voice queries to /ask."""
+    user_id: int = Field(..., description="ID of the user for demo identity")
+    query: str = Field(..., min_length=1, description="Natural language question, command, or confirmation")
+    voice: bool = Field(False, description="Whether the request was spoken via voice UI")
+    confirmation_token: Optional[str] = Field(None, description="Optional pending payment confirmation ID or token")
+    conversation_id: Optional[str] = Field(None, description="Optional multi-turn conversation session ID")
+
+
+class AskResponse(BaseModel):
+    """Response model returning accessible natural narration backed by deterministic facts."""
+    intent: str = Field(..., description="Classified intent")
+    answer_text: str = Field(..., description="Accessible spoken answer for screen reader / TTS")
+    aria_priority: str = Field("polite", description="'polite' or 'assertive' for live regions")
+    requires_confirmation: bool = Field(False, description="Whether explicit user confirmation is needed")
+    confirmation_token: Optional[str] = Field(None, description="Token/ID required for confirmation step")
+    pending_payment_id: Optional[int] = Field(None, description="Database ID of the pending payment")
+    structured_facts: Dict[str, Any] = Field(default_factory=dict, description="Authoritative structured engine facts")
+    structured_data: Dict[str, Any] = Field(default_factory=dict, description="Authoritative structured engine facts (alias for structured_facts)")
+    execution_mode: str = Field("MOCK_FALLBACK", description="Execution mode: 'REAL_LLM' or 'MOCK_FALLBACK'")
+    conversation_status: str = Field("completed", description="Conversation status: 'completed', 'clarification_needed', or 'awaiting_confirmation'")
+    conversation_id: Optional[str] = Field(None, description="Conversation session ID")
+
+
+class PaymentPreviewRequest(BaseModel):
+    """Request payload to preview a payment without creating transactions."""
+    user_id: int = Field(..., description="ID of the paying user")
+    amount: Decimal = Field(..., gt=0, description="Payment amount (positive Decimal)")
+    recipient_name: str = Field(..., min_length=1, max_length=255, description="Target recipient or payee name")
+
+
+class PaymentPreviewResponse(BaseModel):
+    """Response model returning deterministic preview, risk evaluation, and pending payment ID."""
+    can_proceed: bool
+    amount: Decimal
+    recipient_name: str
+    current_balance: Decimal
+    balance_after: Decimal
+    upcoming_bills: Decimal
+    available_after_commitments: Decimal
+    risk_level: str
+    fraud_warning: bool = False
+    risk_reasons: List[str] = Field(default_factory=list)
+    pending_payment_id: Optional[int] = None
+    requires_confirmation: bool = True
+    confirmation_token: Optional[str] = None
+    reasoning_facts: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class PaymentExecuteRequest(BaseModel):
+    """Request payload to execute a persistent pending payment."""
+    user_id: int = Field(..., description="ID of the user confirming payment")
+    pending_payment_id: int = Field(..., description="Persistent ID of the pending payment to execute")
+
+
+class PaymentExecuteResponse(BaseModel):
+    """Response model for completed simulated payment transaction."""
+    success: bool = True
+    transaction_id: int
+    recipient_name: str
+    amount: Decimal
+    previous_balance: Decimal
+    new_balance: Decimal
+    transaction_type: str = "expense"
+    pending_payment_id: int
+    status: str = "executed"
+
+
+

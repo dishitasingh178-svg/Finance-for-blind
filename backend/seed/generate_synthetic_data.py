@@ -35,7 +35,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from backend.db import SessionLocal, init_db
-from backend.models import User, Account, Transaction, Goal, Bill, Document
+from backend.models import User, Account, Transaction, Goal, Bill, Document, PendingPayment
 
 # Fixed Reference Date for FinSight Synthetic Dataset
 REFERENCE_DATE = date(2026, 8, 27)
@@ -56,6 +56,7 @@ def seed_synthetic_data() -> None:
         if existing_user:
             print(f"Cleaning up existing seed data for {DEMO_EMAIL}...")
             # Explicitly delete child entities to ensure clean state
+            db.query(PendingPayment).filter_by(user_id=existing_user.id).delete()
             db.query(Transaction).filter_by(user_id=existing_user.id).delete()
             db.query(Bill).filter_by(user_id=existing_user.id).delete()
             db.query(Goal).filter_by(user_id=existing_user.id).delete()

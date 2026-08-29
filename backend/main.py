@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db import get_db, init_db
-from backend.routers import dashboard, transactions, goals, bank, statements
+from backend.routers import dashboard, transactions, goals, bank, statements, ai, payments
 
 
 @asynccontextmanager
@@ -44,6 +44,8 @@ app.include_router(transactions.router)
 app.include_router(goals.router)
 app.include_router(bank.router)
 app.include_router(statements.router)
+app.include_router(ai.router)
+app.include_router(payments.router)
 
 
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])
