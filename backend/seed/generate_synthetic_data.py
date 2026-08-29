@@ -1146,5 +1146,10 @@ def _print_validation_report(db: Any, user_id: int, account_id: int) -> None:
     print(f"\nBalances match:\n{'TRUE' if balances_match else 'FALSE'}\n")
 
 
+# Backwards compatibility alias for legacy scripts and test suites
+seed_database = seed_synthetic_data
+
+
 if __name__ == "__main__":
     seed_synthetic_data()
+

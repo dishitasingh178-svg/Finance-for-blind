@@ -220,3 +220,19 @@ class ConfirmTransactionsResponse(BaseModel):
     skipped_items: List[SkippedTransactionItem]
 
 
+# --- Conversational AI / Voice Schemas ---
+
+class AskRequest(BaseModel):
+    """Request payload for conversational AI financial assistant."""
+    user_id: int = Field(..., description="ID of the user asking the question")
+    query: str = Field(..., min_length=1, description="Natural language personal finance question")
+    context: Optional[Dict[str, Any]] = Field(None, description="Optional conversation or application context")
+
+
+class AskResponse(BaseModel):
+    """Response model containing grounded natural-language answer and structured engine facts."""
+    answer_text: str = Field(..., description="Grounded natural-language spoken response")
+    structured_data: Any = Field(..., description="Authoritative structured data returned by deterministic engine")
+
+
+
