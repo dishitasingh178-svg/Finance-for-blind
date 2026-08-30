@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.models import User, PendingPayment
+from backend.auth.dependencies import get_current_user
 from backend.payment.payment_engine import preview_payment, execute_payment
 from backend.payment.risk import evaluate_payment_risk
 from backend.schemas import (
@@ -38,6 +39,7 @@ router = APIRouter(tags=["Payments"])
 )
 def preview_payment_endpoint(
     request: PaymentPreviewRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PaymentPreviewResponse:
     """
@@ -48,13 +50,9 @@ def preview_payment_endpoint(
     - Zero database transactions are written during preview.
     - Deterministic risk assessment flags unusually large or anomalous payments.
     - Confirmation token/ID is generated and persisted for explicit user confirmation.
+    - Staged strictly for the authenticated current_user.id.
     """
-    user = db.query(User).filter(User.id == request.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {request.user_id} not found.",
-        )
+    user_id = current_user.id
 
     if not request.recipient_name or not request.recipient_name.strip():
         raise HTTPException(
@@ -71,7 +69,7 @@ def preview_payment_endpoint(
     try:
         # 1. Deterministic payment preview
         preview_facts = preview_payment(
-            user_id=request.user_id,
+            user_id=user_id,
             amount=request.amount,
             recipient_name=request.recipient_name.strip(),
             db=db,
@@ -79,7 +77,7 @@ def preview_payment_endpoint(
 
         # 2. Deterministic payment risk evaluation
         risk_facts = evaluate_payment_risk(
-            user_id=request.user_id,
+            user_id=user_id,
             amount=request.amount,
             recipient_name=request.recipient_name.strip(),
             db=db,
@@ -87,7 +85,7 @@ def preview_payment_endpoint(
 
         # 3. Create persistent PendingPayment record (15-minute expiration)
         pending_payment = PendingPayment(
-            user_id=request.user_id,
+            user_id=user_id,
             amount=request.amount,
             recipient_name=request.recipient_name.strip(),
             status="pending",
@@ -136,24 +134,20 @@ def preview_payment_endpoint(
 )
 def execute_payment_endpoint(
     request: PaymentExecuteRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PaymentExecuteResponse:
     """
     Executes a previously staged PendingPayment upon explicit user confirmation.
 
     Security & Safety Guarantees:
-    - User ownership verification.
+    - User ownership verification against current_user.id.
     - Single-use execution (status must be 'pending').
     - Expiration check (cannot execute expired pending payments).
     - Amount and recipient are loaded strictly from the database record (anti-tampering).
     - Records an expense transaction (source='payment') and recalculates authoritative balance.
     """
-    user = db.query(User).filter(User.id == request.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {request.user_id} not found.",
-        )
+    user_id = current_user.id
 
     pending_payment = (
         db.query(PendingPayment)
@@ -166,12 +160,13 @@ def execute_payment_endpoint(
             detail=f"Pending payment with id {request.pending_payment_id} not found.",
         )
 
-    # 1. User ownership check
-    if pending_payment.user_id != request.user_id:
+    # 1. User ownership check against authenticated current_user
+    if pending_payment.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Unauthorized: Pending payment does not belong to the requesting user.",
         )
+
 
     # 2. Status verification
     if pending_payment.status == "executed":
@@ -197,11 +192,12 @@ def execute_payment_endpoint(
     # 4. Deterministic payment execution with tamper-proof DB values
     try:
         exec_facts = execute_payment(
-            user_id=request.user_id,
+            user_id=user_id,
             amount=pending_payment.amount,
             recipient_name=pending_payment.recipient_name,
             db=db,
         )
+
 
         # 5. Mark pending payment as executed
         pending_payment.status = "executed"

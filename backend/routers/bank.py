@@ -4,11 +4,13 @@ Mock Bank Router for FinSight.
 Simulates connection to a financial institution and deterministic bank feed synchronization.
 """
 
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.models import User, Account
+from backend.auth.dependencies import get_current_user
 from backend.schemas import (
     BankConnectRequest,
     BankConnectResponse,
@@ -26,37 +28,33 @@ router = APIRouter(tags=["Bank Ingestion"])
 @router.post("/api/v1/bank/connect", response_model=BankConnectResponse, include_in_schema=False)
 def connect_mock_bank(
     payload: BankConnectRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BankConnectResponse:
     """
-    Simulates connecting the user's account to a mock financial institution.
+    Simulates connecting the authenticated user's account to a mock financial institution.
     """
-    user = db.query(User).filter(User.id == payload.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {payload.user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     if payload.account_id:
-        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == payload.user_id).first()
+        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == authoritative_user_id).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Account with id {payload.account_id} not found for user {payload.user_id}.",
+                detail=f"Account with id {payload.account_id} not found for authenticated user.",
             )
     else:
-        account = db.query(Account).filter(Account.user_id == payload.user_id, Account.is_active == True).first()
+        account = db.query(Account).filter(Account.user_id == authoritative_user_id, Account.is_active == True).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No active account found for user {payload.user_id}.",
+                detail="No active account found for authenticated user.",
             )
 
     return BankConnectResponse(
         status="connected",
         institution_name=payload.institution_name,
-        user_id=payload.user_id,
+        user_id=authoritative_user_id,
         account_id=account.id,
         message=f"Successfully connected account '{account.name}' to {payload.institution_name}.",
     )
@@ -66,15 +64,18 @@ def connect_mock_bank(
 @router.post("/api/v1/bank/sync", response_model=BankSyncResponse, include_in_schema=False)
 def sync_bank_feed(
     payload: BankSyncRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BankSyncResponse:
     """
-    Synchronizes deterministic mock bank transactions for the specified user and account.
+    Synchronizes deterministic mock bank transactions for the authenticated user and account.
     Repeated calls automatically skip duplicates.
     """
+    authoritative_user_id = current_user.id
+
     try:
         sync_result = sync_mock_bank_transactions(
-            user_id=payload.user_id,
+            user_id=authoritative_user_id,
             account_id=payload.account_id,
             db=db,
         )
@@ -96,3 +97,4 @@ def sync_bank_feed(
         imported_transactions=imported_responses,
         skipped_transactions=skipped_items,
     )
+

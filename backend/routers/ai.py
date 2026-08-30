@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.models import User
+from backend.auth.dependencies import get_current_user
 from backend.schemas import AskRequest, AskResponse
 from ai.pipeline import AIPipeline
 
@@ -20,34 +21,32 @@ router = APIRouter(tags=["AI Copilot"])
 @router.post("/api/v1/ask", response_model=AskResponse, include_in_schema=False)
 def ask_financial_copilot(
     request: AskRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> AskResponse:
     """
     Primary conversational endpoint for FinSight.
 
     Architecture Flow:
-    1. Validates user existence.
+    1. Authenticates request and obtains authoritative current_user.id.
     2. Passes query to AI Intent Router to extract intent and slots.
-    3. Backend Dispatcher routes intent to deterministic financial / payment engine.
+    3. Backend Dispatcher routes intent to deterministic financial / payment engine using current_user.id.
     4. AI Explainer synthesizes accessible, screen-reader-safe spoken narration.
     5. Returns authoritative facts and accessible narration.
     """
-    user = db.query(User).filter(User.id == request.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {request.user_id} not found.",
-        )
+    # The authenticated current_user.id is strictly authoritative (overriding any body user_id)
+    user_id = current_user.id
 
     try:
         result = AIPipeline.process_query(
-            user_id=request.user_id,
+            user_id=user_id,
             query=request.query,
             db=db,
             confirmation_token=request.confirmation_token,
             conversation_id=request.conversation_id,
             voice=request.voice,
         )
+
 
         facts = result.get("structured_facts", {})
         execution_mode = result.get("execution_mode", "MOCK_FALLBACK")

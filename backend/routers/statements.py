@@ -5,12 +5,13 @@ Establishes the backend integration boundary for bank statement candidate ingest
 Evaluates extracted candidates for validation and duplicates without persisting them directly to transactions.
 """
 
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.models import User, Account, Document
+from backend.auth.dependencies import get_current_user
 from backend.schemas import (
     StatementUploadRequest,
     StatementUploadResponse,
@@ -26,38 +27,35 @@ router = APIRouter(tags=["Statement Ingestion"])
 @router.post("/api/v1/statements/upload", response_model=StatementUploadResponse, include_in_schema=False)
 def upload_statement_candidates(
     payload: StatementUploadRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StatementUploadResponse:
     """
-    Receives statement metadata and extracted transaction candidates.
+    Receives statement metadata and extracted transaction candidates for the authenticated user.
     Evaluates candidate validity and detects duplicates against existing transactions.
     Candidates are staged in the Document store and are NOT automatically written to the Transaction ledger.
     """
-    user = db.query(User).filter(User.id == payload.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {payload.user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     if payload.account_id:
-        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == payload.user_id).first()
+        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == authoritative_user_id).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Account with id {payload.account_id} not found for user {payload.user_id}.",
+                detail=f"Account with id {payload.account_id} not found for user {authoritative_user_id}.",
             )
     else:
-        account = db.query(Account).filter(Account.user_id == payload.user_id, Account.is_active == True).first()
+        account = db.query(Account).filter(Account.user_id == authoritative_user_id, Account.is_active == True).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No active account found for user {payload.user_id}.",
+                detail=f"No active account found for user {authoritative_user_id}.",
             )
+
 
     # Stage metadata into Document store
     doc = Document(
-        user_id=payload.user_id,
+        user_id=authoritative_user_id,
         filename=payload.filename,
         document_type="bank_statement",
         mime_type="application/pdf",
@@ -106,7 +104,7 @@ def upload_statement_candidates(
         is_dup, dup_id, dup_reason = is_duplicate_transaction(
             db=db,
             account_id=account.id,
-            user_id=user.id,
+            user_id=authoritative_user_id,
             amount=normalized["amount"],
             transaction_date=normalized["transaction_date"],
             merchant_name=normalized["merchant_name"],
@@ -141,3 +139,4 @@ def upload_statement_candidates(
         duplicate_candidates_count=dup_count,
         candidates=evaluated_candidates,
     )
+

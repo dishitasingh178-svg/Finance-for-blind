@@ -224,8 +224,8 @@ class ConfirmTransactionsResponse(BaseModel):
 
 class AskRequest(BaseModel):
     """Request payload for natural language and voice queries to /ask."""
-    user_id: int = Field(..., description="ID of the user for demo identity")
     query: str = Field(..., min_length=1, description="Natural language question, command, or confirmation")
+    user_id: Optional[int] = Field(None, description="Legacy demo user ID (strictly ignored when JWT Bearer token is provided)")
     voice: bool = Field(False, description="Whether the request was spoken via voice UI")
     confirmation_token: Optional[str] = Field(None, description="Optional pending payment confirmation ID or token")
     conversation_id: Optional[str] = Field(None, description="Optional multi-turn conversation session ID")
@@ -248,9 +248,9 @@ class AskResponse(BaseModel):
 
 class PaymentPreviewRequest(BaseModel):
     """Request payload to preview a payment without creating transactions."""
-    user_id: int = Field(..., description="ID of the paying user")
     amount: Decimal = Field(..., gt=0, description="Payment amount (positive Decimal)")
     recipient_name: str = Field(..., min_length=1, max_length=255, description="Target recipient or payee name")
+    user_id: Optional[int] = Field(None, description="Legacy demo user ID (strictly overridden by authenticated JWT)")
 
 
 class PaymentPreviewResponse(BaseModel):
@@ -273,8 +273,8 @@ class PaymentPreviewResponse(BaseModel):
 
 class PaymentExecuteRequest(BaseModel):
     """Request payload to execute a persistent pending payment."""
-    user_id: int = Field(..., description="ID of the user confirming payment")
     pending_payment_id: int = Field(..., description="Persistent ID of the pending payment to execute")
+    user_id: Optional[int] = Field(None, description="Legacy demo user ID (strictly verified against authenticated JWT)")
 
 
 class PaymentExecuteResponse(BaseModel):
@@ -288,6 +288,72 @@ class PaymentExecuteResponse(BaseModel):
     transaction_type: str = "expense"
     pending_payment_id: int
     status: str = "executed"
+
+
+# --- Authentication & Passkey Schemas ---
+
+class UserSignupRequest(BaseModel):
+    """Request payload for new user registration."""
+    name: str = Field(..., min_length=1, max_length=255, description="User full name")
+    email: str = Field(..., min_length=3, max_length=255, description="User unique email address")
+    password: str = Field(..., min_length=8, max_length=255, description="Secure user password (minimum 8 chars)")
+    accessibility_prefs: Optional[Dict[str, Any]] = Field(None, description="Optional accessibility preferences")
+
+
+class UserLoginRequest(BaseModel):
+    """Request payload for password-based login."""
+    email: str = Field(..., description="Registered user email")
+    password: str = Field(..., description="User plaintext password to verify")
+
+
+class UserResponse(BaseModel):
+    """Safe response model for user profile (never exposes passwords or credentials)."""
+    id: int
+    full_name: str
+    email: str
+    accessibility_prefs: Dict[str, Any]
+    is_active: bool = True
+    has_passkey: bool = False
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TokenResponse(BaseModel):
+    """Response model returning JWT access token upon successful authentication."""
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
+
+
+class PasskeyRegisterVerifyRequest(BaseModel):
+    """Request payload verifying a WebAuthn registration credential from browser."""
+    credential: Dict[str, Any] = Field(..., description="WebAuthn credential object from navigator.credentials.create")
+    challenge: str = Field(..., description="Challenge string received in registration options")
+    nickname: Optional[str] = Field("My Passkey", description="User-friendly name for this authenticator/device")
+
+
+class PasskeyLoginOptionsRequest(BaseModel):
+    """Request payload requesting authentication options for passkey sign-in."""
+    email: Optional[str] = Field(None, description="Optional email address to filter allowed credentials")
+
+
+class PasskeyLoginVerifyRequest(BaseModel):
+    """Request payload verifying WebAuthn authentication assertion from browser."""
+    credential: Dict[str, Any] = Field(..., description="WebAuthn assertion object from navigator.credentials.get")
+    challenge: str = Field(..., description="Challenge string received in login options")
+
+
+class PasskeyCredentialResponse(BaseModel):
+    """Response model describing a registered passkey credential."""
+    id: int
+    nickname: Optional[str] = None
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 

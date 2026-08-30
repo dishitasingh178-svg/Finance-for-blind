@@ -1,10 +1,3 @@
-"""
-Goals Router for FinSight.
-
-Provides CRUD endpoints for financial goals and integrates with the deterministic
-financial engine for goal projection timelines.
-"""
-
 from decimal import Decimal
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException, status
@@ -12,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.models import User, Goal
+from backend.auth.dependencies import get_current_user
 from backend.engine import project_goal_completion
 from backend.schemas import (
     GoalCreateRequest,
@@ -27,22 +21,18 @@ router = APIRouter(tags=["Goals"])
 @router.get("/goals", response_model=List[GoalResponse], summary="List User Goals")
 @router.get("/api/v1/goals", response_model=List[GoalResponse], include_in_schema=False)
 def list_goals(
-    user_id: int = Query(..., description="ID of the user to retrieve goals for"),
+    user_id: Optional[int] = Query(None, description="Optional legacy demo user ID (overridden by authenticated JWT identity)"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[GoalResponse]:
     """
-    Retrieves all financial goals belonging to the specified user.
+    Retrieves all financial goals belonging to the authenticated user.
     """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     goals = (
         db.query(Goal)
-        .filter(Goal.user_id == user_id)
+        .filter(Goal.user_id == authoritative_user_id)
         .order_by(Goal.id.asc())
         .all()
     )
@@ -53,24 +43,13 @@ def list_goals(
 @router.post("/api/v1/goals", response_model=GoalResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def create_goal(
     payload: GoalCreateRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> GoalResponse:
     """
-    Creates a new financial goal with Decimal-safe validation.
-
-    Validation rules:
-    - User must exist.
-    - target_amount must be > 0.
-    - monthly_contribution must be > 0.
-    - current_amount initializes to 0.00.
-    - status initializes to 'active'.
+    Creates a new financial goal with Decimal-safe validation for the authenticated user.
     """
-    user = db.query(User).filter(User.id == payload.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {payload.user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     if payload.target_amount <= Decimal("0.00"):
         raise HTTPException(
@@ -85,7 +64,7 @@ def create_goal(
         )
 
     new_goal = Goal(
-        user_id=payload.user_id,
+        user_id=authoritative_user_id,
         name=payload.name,
         target_amount=payload.target_amount,
         current_amount=Decimal("0.00"),
@@ -106,12 +85,15 @@ def create_goal(
 def update_goal_contribution(
     id: int,
     payload: GoalUpdateRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> GoalWithProjectionResponse:
     """
     Updates the monthly contribution for an existing goal and returns the updated goal
     along with its deterministic completion projection from project_goal_completion().
     """
+    authoritative_user_id = current_user.id
+
     goal = db.query(Goal).filter(Goal.id == id).first()
     if not goal:
         raise HTTPException(
@@ -119,11 +101,11 @@ def update_goal_contribution(
             detail=f"Goal with id {id} not found.",
         )
 
-    # Enforce user isolation if user_id was provided
-    if payload.user_id is not None and goal.user_id != payload.user_id:
+    # Strict user isolation check against authenticated current_user
+    if goal.user_id != authoritative_user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Forbidden: Goal {id} does not belong to user {payload.user_id}.",
+            detail=f"Forbidden: Goal {id} does not belong to authenticated user.",
         )
 
     if payload.monthly_contribution <= Decimal("0.00"):
@@ -146,3 +128,4 @@ def update_goal_contribution(
             hypothetical_months_remaining=projection_data.get("hypothetical_months_remaining"),
         ),
     )
+

@@ -50,12 +50,22 @@ def init_db() -> None:
     # Safe idempotent SQLite schema migration
     if DATABASE_URL.startswith("sqlite"):
         with engine.connect() as conn:
+            # Transactions columns check
             cursor = conn.execute(text("PRAGMA table_info(transactions)"))
-            cols = [row[1] for row in cursor.fetchall()]
-            if "source" not in cols:
-                conn.execute(text("ALTER TABLE transactions ADD COLUMN source VARCHAR(50) DEFAULT 'bank' NOT NULL"))
+            tx_cols = [row[1] for row in cursor.fetchall()]
+            if tx_cols:
+                if "source" not in tx_cols:
+                    conn.execute(text("ALTER TABLE transactions ADD COLUMN source VARCHAR(50) DEFAULT 'bank' NOT NULL"))
+                    conn.commit()
+                if "reference_id" not in tx_cols:
+                    conn.execute(text("ALTER TABLE transactions ADD COLUMN reference_id VARCHAR(255)"))
+                    conn.commit()
+
+            # Users table columns check
+            cursor = conn.execute(text("PRAGMA table_info(users)"))
+            user_cols = [row[1] for row in cursor.fetchall()]
+            if user_cols and "hashed_password" not in user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN hashed_password VARCHAR(255)"))
                 conn.commit()
-            if "reference_id" not in cols:
-                conn.execute(text("ALTER TABLE transactions ADD COLUMN reference_id VARCHAR(255)"))
-                conn.commit()
+
 

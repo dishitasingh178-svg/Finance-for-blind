@@ -15,6 +15,7 @@ from backend.models.goal import Goal, VALID_GOAL_STATUSES
 from backend.models.bill import Bill, VALID_BILL_STATUSES
 from backend.models.document import Document
 from backend.models.pending_payment import PendingPayment, VALID_PENDING_PAYMENT_STATUSES
+from backend.models.passkey import PasskeyCredential, AuthChallenge
 
 __all__ = [
     "Base",
@@ -25,6 +26,8 @@ __all__ = [
     "Bill",
     "Document",
     "PendingPayment",
+    "PasskeyCredential",
+    "AuthChallenge",
     "DEFAULT_ACCESSIBILITY_PREFS",
     "VALID_TRANSACTION_TYPES",
     "VALID_CATEGORIES",
@@ -32,3 +35,4 @@ __all__ = [
     "VALID_BILL_STATUSES",
     "VALID_PENDING_PAYMENT_STATUSES",
 ]
+

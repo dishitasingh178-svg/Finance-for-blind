@@ -4,7 +4,7 @@ Transactions Router for FinSight.
 Provides transaction history, voice transaction ingestion, and statement candidate confirmation.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from sqlalchemy import extract
 
 from backend.db import get_db
 from backend.models import User, Account, Transaction, Document
+from backend.auth.dependencies import get_current_user
 from backend.engine import get_balance, get_spending_summary
 from backend.engine.financial_engine import _get_previous_calendar_month
 from backend.schemas import (
@@ -31,26 +32,16 @@ router = APIRouter(tags=["Transactions"])
 @router.get("/transactions", response_model=TransactionsListResponse, summary="Get User Transactions")
 @router.get("/api/v1/transactions", response_model=TransactionsListResponse, include_in_schema=False)
 def get_user_transactions(
-    user_id: int = Query(..., description="ID of the user"),
+    user_id: Optional[int] = Query(None, description="Optional legacy demo user ID (overridden by authenticated JWT identity)"),
     period: str = Query("this_month", description="Period to filter ('this_month' or 'last_month')"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TransactionsListResponse:
     """
-    Returns transaction history for the specified user and period, along with deterministic
+    Returns transaction history for the authenticated user and period, along with deterministic
     category spending totals.
-
-    Rules:
-    - User ownership: Only transactions belonging to user-owned accounts are retrieved.
-    - Period alignment: 'this_month' and 'last_month' use centralized calendar bounds matching the engine.
-    - Sign convention: Inflows remain positive (+), outflows remain negative (-).
-    - Categorical totals: Directly sourced from get_spending_summary(period=period).
     """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     if period not in ("this_month", "last_month"):
         raise HTTPException(
@@ -59,11 +50,11 @@ def get_user_transactions(
         )
 
     # 1. Obtain categorical totals directly from the deterministic financial engine
-    spending_summary = get_spending_summary(user_id, db, period=period)
+    spending_summary = get_spending_summary(authoritative_user_id, db, period=period)
     by_category: Dict[str, Decimal] = spending_summary["by_category"]
 
     # 2. Determine calendar period range matching the financial engine
-    balance_info = get_balance(user_id, db)
+    balance_info = get_balance(authoritative_user_id, db)
     as_of = balance_info["as_of"]
 
     if not as_of:
@@ -79,8 +70,8 @@ def get_user_transactions(
         db.query(Transaction)
         .join(Account, Transaction.account_id == Account.id)
         .filter(
-            Account.user_id == user_id,
-            Transaction.user_id == user_id,
+            Account.user_id == authoritative_user_id,
+            Transaction.user_id == authoritative_user_id,
             extract("year", Transaction.transaction_date) == target_year,
             extract("month", Transaction.transaction_date) == target_month,
         )
@@ -100,32 +91,28 @@ def get_user_transactions(
 @router.post("/api/v1/transactions/voice", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def ingest_voice_transaction(
     payload: VoiceTransactionRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TransactionResponse:
     """
-    Accepts structured transaction JSON from the voice/AI layer, validates inputs,
-    normalizes the sign convention, and stores it with source='voice'.
+    Accepts structured transaction JSON from the voice/AI layer for the authenticated user,
+    validates inputs, normalizes the sign convention, and stores it with source='voice'.
     """
-    user = db.query(User).filter(User.id == payload.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {payload.user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     if payload.account_id:
-        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == payload.user_id).first()
+        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == authoritative_user_id).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Account with id {payload.account_id} not found for user {payload.user_id}.",
+                detail=f"Account with id {payload.account_id} not found for user {authoritative_user_id}.",
             )
     else:
-        account = db.query(Account).filter(Account.user_id == payload.user_id, Account.is_active == True).first()
+        account = db.query(Account).filter(Account.user_id == authoritative_user_id, Account.is_active == True).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No active account found for user {payload.user_id}.",
+                detail=f"No active account found for user {authoritative_user_id}.",
             )
 
     try:
@@ -143,7 +130,7 @@ def ingest_voice_transaction(
 
     tx = Transaction(
         account_id=account.id,
-        user_id=user.id,
+        user_id=authoritative_user_id,
         amount=normalized["amount"],
         currency="INR",
         transaction_type=normalized["transaction_type"],
@@ -166,46 +153,44 @@ def ingest_voice_transaction(
 @router.post("/api/v1/transactions/confirm", response_model=ConfirmTransactionsResponse, include_in_schema=False)
 def confirm_statement_transactions(
     payload: ConfirmTransactionsRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ConfirmTransactionsResponse:
     """
-    Confirms validated statement transaction candidates and persists them into the Transaction table
-    with source='statement'. Skips any duplicate items.
+    Confirms validated statement transaction candidates for the authenticated user and
+    persists them into the Transaction table with source='statement'. Skips any duplicate items.
     """
-    user = db.query(User).filter(User.id == payload.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {payload.user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     # Verify document ownership if document_id is provided
     if payload.document_id is not None:
         doc = (
             db.query(Document)
-            .filter(Document.id == payload.document_id, Document.user_id == payload.user_id)
+            .filter(Document.id == payload.document_id, Document.user_id == authoritative_user_id)
             .first()
         )
         if not doc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Document with id {payload.document_id} not found for user {payload.user_id}.",
+                detail=f"Document with id {payload.document_id} not found for user {authoritative_user_id}.",
             )
 
+
     if payload.account_id:
-        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == payload.user_id).first()
+        account = db.query(Account).filter(Account.id == payload.account_id, Account.user_id == authoritative_user_id).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Account with id {payload.account_id} not found for user {payload.user_id}.",
+                detail=f"Account with id {payload.account_id} not found for user {authoritative_user_id}.",
             )
     else:
-        account = db.query(Account).filter(Account.user_id == payload.user_id, Account.is_active == True).first()
+        account = db.query(Account).filter(Account.user_id == authoritative_user_id, Account.is_active == True).first()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No active account found for user {payload.user_id}.",
+                detail=f"No active account found for user {authoritative_user_id}.",
             )
+
 
     confirmed_txs: List[Transaction] = []
     skipped_items: List[SkippedTransactionItem] = []
@@ -236,7 +221,7 @@ def confirm_statement_transactions(
         is_dup, dup_id, dup_reason = is_duplicate_transaction(
             db=db,
             account_id=account.id,
-            user_id=user.id,
+            user_id=authoritative_user_id,
             amount=normalized["amount"],
             transaction_date=normalized["transaction_date"],
             merchant_name=normalized["merchant_name"],
@@ -256,7 +241,7 @@ def confirm_statement_transactions(
         else:
             new_tx = Transaction(
                 account_id=account.id,
-                user_id=user.id,
+                user_id=authoritative_user_id,
                 amount=normalized["amount"],
                 currency="INR",
                 transaction_type=normalized["transaction_type"],
@@ -286,3 +271,4 @@ def confirm_statement_transactions(
         transactions=tx_responses,
         skipped_items=skipped_items,
     )
+

@@ -7,11 +7,13 @@ Integrates with the deterministic financial engine for authoritative balances an
 
 from decimal import Decimal
 from datetime import date, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.models import User, Account, Goal, Bill
+from backend.auth.dependencies import get_current_user
 from backend.engine import get_balance, get_spending_summary
 from backend.schemas import DashboardOverviewResponse, GoalResponse
 
@@ -22,47 +24,33 @@ router = APIRouter(tags=["Dashboard"])
 @router.get("/api/v1/overview", response_model=DashboardOverviewResponse, include_in_schema=False)
 @router.get("/api/v1/dashboard/overview", response_model=DashboardOverviewResponse, include_in_schema=False)
 def get_dashboard_overview(
-    user_id: int = Query(..., description="ID of the user to retrieve overview for"),
+    user_id: Optional[int] = Query(None, description="Optional legacy demo user ID (overridden by authenticated JWT identity)"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DashboardOverviewResponse:
     """
-    Returns structured dashboard overview facts for the specified user.
-
-    Calculations:
-    - balance: Authoritative balance derived via get_balance() from SUM(transaction.amount).
-    - monthly_spending: Current month's total expenses derived via get_spending_summary(period='this_month').
-    - monthly_income: Sum of monthly_income for user's active accounts.
-    - monthly_surplus: Authoritative calculated metric defined strictly as (monthly_income - monthly_spending)
-      representing recorded cash-flow surplus for the period.
-    - savings: Compatibility field equivalent to monthly_surplus (monthly cash-flow surplus, NOT actual
-      savings-account deposits).
-    - upcoming_bills: Unpaid bills due within 30 days of the deterministic as_of date.
-    - goals: Active financial goals belonging to the user.
+    Returns structured dashboard overview facts for the authenticated user.
     """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with id {user_id} not found.",
-        )
+    authoritative_user_id = current_user.id
 
     # 1. Authoritative balance and as_of date from deterministic engine
-    balance_info = get_balance(user_id, db)
+    balance_info = get_balance(authoritative_user_id, db)
     authoritative_balance: Decimal = balance_info["balance"]
     as_of = balance_info["as_of"]
     as_of_date = as_of.date() if as_of else date(2026, 8, 27)
 
     # 2. Monthly spending from deterministic engine
-    spending_summary = get_spending_summary(user_id, db, period="this_month")
+    spending_summary = get_spending_summary(authoritative_user_id, db, period="this_month")
     monthly_spending: Decimal = spending_summary["total"]
 
     # 3. Monthly income from active user accounts
     active_accounts = (
         db.query(Account)
-        .filter(Account.user_id == user_id, Account.is_active == True)
+        .filter(Account.user_id == authoritative_user_id, Account.is_active == True)
         .all()
     )
     monthly_income = sum((acc.monthly_income for acc in active_accounts), Decimal("0.00"))
+
 
     # 4. Authoritative Monthly Surplus & Compatibility Savings calculation
     monthly_surplus = monthly_income - monthly_spending
@@ -72,7 +60,7 @@ def get_dashboard_overview(
     unpaid_bills = (
         db.query(Bill)
         .filter(
-            Bill.user_id == user_id,
+            Bill.user_id == authoritative_user_id,
             Bill.status == "unpaid",
             Bill.due_date >= as_of_date,
             Bill.due_date <= as_of_date + timedelta(days=30),
@@ -84,10 +72,11 @@ def get_dashboard_overview(
     # 6. Active goals belonging to this user
     active_goals = (
         db.query(Goal)
-        .filter(Goal.user_id == user_id, Goal.status == "active")
+        .filter(Goal.user_id == authoritative_user_id, Goal.status == "active")
         .order_by(Goal.id.asc())
         .all()
     )
+
     goals_responses = [GoalResponse.model_validate(g) for g in active_goals]
 
     return DashboardOverviewResponse(
