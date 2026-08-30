@@ -145,13 +145,98 @@ FINSIGHT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_scam_message",
+            "description": (
+                "Analyze a supplied SMS, chat, email, or message for potential scam, phishing, or fraud indicators. "
+                "Select this whenever the user asks to check if a message/SMS/link is a scam, fake, fraudulent, or suspicious, "
+                "or when the user pastes a suspicious message to be analyzed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The exact message or SMS text to evaluate for scam and fraud patterns.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_bank",
+            "description": (
+                "Trigger a bank account synchronization or refresh action to update bank feeds. "
+                "Select this when the user asks to sync their bank, refresh accounts, update bank feeds, "
+                "or in Hindi/Hinglish (e.g., 'Sync my bank', 'Refresh my account', 'Bank update kar do', 'Bank sync karo', 'Mera bank update karo')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_recent_transactions",
+            "description": (
+                "Trigger a UI accessibility action to read aloud or display recent transaction history. "
+                "Select this when the user asks to read their transactions, show recent expenses/transactions, "
+                "or in Hindi/Hinglish (e.g., 'Read my recent transactions', 'Read my transactions', 'Last transactions kya hai?', 'What did I spend recently?')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_goals",
+            "description": (
+                "Trigger a UI accessibility action to read aloud or display active savings goals and target progress. "
+                "Select this when the user asks to read their goals, tell them their goals, or in Hindi/Hinglish "
+                "(e.g., 'Read my goals', 'Tell me my goals', 'Mera goal progress kya hai?', 'Read my goal progress', 'Goals sunao')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "upload_document",
+            "description": (
+                "Trigger a UI action to open the document scanner or upload bank statement files. "
+                "Select this when the user asks to upload a document, upload a bank statement, scan statement, "
+                "or in Hindi/Hinglish (e.g., 'Upload a document', 'I want to upload my bank statement', 'Bank statement scan karo', 'Upload my statement')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """You are FinSight's AI Intent Router.
-Your role is to understand arbitrary natural language personal finance queries from users and route them semantically to EXACTLY ONE of the five supported financial engine functions:
+Your role is to understand arbitrary natural language personal finance queries and accessibility commands from users and route them semantically to EXACTLY ONE of the supported operations:
 
 ==================================================
-SUPPORTED OPERATIONS & SEMANTIC MEANINGS
+FINANCIAL ENGINE OPERATIONS
 ==================================================
 
 1. get_balance
@@ -195,13 +280,15 @@ Examples:
 CRITICAL: If the user asks about buying/affordability WITHOUT specifying an amount (e.g. "Can I afford it?", "Should I buy this?", "can I get that laptop?"), DO NOT call check_affordability. Respond with a clarification asking for the price.
 
 4. project_goal_completion
-Meaning: Any inquiry about progress, projected completion date, or timeline for a specific named savings goal.
+Meaning: Inquiries calculating mathematical projected completion date, months remaining, or timeline calculation for a specific named savings goal.
 Examples:
 - "when will I reach my emergency fund?"
 - "how long until my savings goal is complete?"
 - "when will I hit my emergency fund?"
 - "when can I finish that emergency fund?"
-CRITICAL: If the user asks about saving timeline WITHOUT mentioning which goal (e.g. "How much longer do I need to save?"), DO NOT guess a goal. Respond asking which savings goal they want to check.
+CRITICAL DISTINCTION:
+- If the user asks to read, show, list, or speak their goals (e.g. "Read my goals", "Tell me my goals", "Read my goal progress", "Mera goal progress kya hai?"), DO NOT select project_goal_completion; select read_goals instead.
+- If the user asks about saving timeline calculation WITHOUT mentioning which goal (e.g. "How much longer do I need to save?"), DO NOT guess a goal. Respond asking which savings goal they want to check.
 
 5. get_insights
 Meaning: Inquiries asking WHY spending changed, anomalies, unusual expenses, patterns, or trends.
@@ -214,10 +301,71 @@ Examples:
 - "are there any spending trends I should know about?"
 
 ==================================================
+PROTECT / SCAM SAFETY OPERATIONS
+==================================================
+
+6. check_scam_message
+Meaning: Inquiries asking to evaluate, check, or verify whether a message, SMS, email, link, or notification is a scam, phishing attempt, fraudulent, or suspicious, OR when a user pastes a message for safety analysis.
+Examples:
+- "Is this a scam?"
+- "Can you check if this message is a scam?"
+- "Can you check a message for me?"
+- "Is this SMS fraudulent?"
+- "Check this message for fraud: Your SBI account will be blocked..."
+- "Does this look suspicious: Congratulations! You won ₹25,000..."
+- "Is this a scam? Send OTP immediately."
+- "Check if this link is safe."
+Note: Extract the message parameter if present in the user's query. If the user asks to check a message without pasting the message text, call check_scam_message with message omitted or empty.
+
+==================================================
+UI CONTROL & ACCESSIBILITY COMMANDS
+==================================================
+
+7. sync_bank
+Meaning: Voice or natural language commands asking to sync, refresh, or update connected bank accounts or feeds.
+Examples:
+- "Sync my bank"
+- "Refresh my account"
+- "Update my bank"
+- "Bank update kar do"
+- "Mera bank sync karo"
+- "Bank refresh karo"
+
+8. read_recent_transactions
+Meaning: Voice commands asking the system to read aloud, display, or list recent transactions.
+Examples:
+- "Read my recent transactions"
+- "Read my transactions"
+- "Last transactions kya hai?"
+- "What did I spend recently?"
+- "Recent transactions sunao"
+- "Show my recent transactions"
+
+9. read_goals
+Meaning: Voice commands asking to read aloud, display, or list active financial goals and progress.
+Examples:
+- "Read my goals"
+- "Tell me my goals"
+- "Mera goal progress kya hai?"
+- "Read my goal progress"
+- "Goals sunao"
+- "Show my goals"
+
+10. upload_document
+Meaning: Voice commands asking to open document upload, scan bank statements, or import statement files.
+Examples:
+- "Upload a document"
+- "I want to upload my bank statement"
+- "Bank statement scan karo"
+- "Upload my statement"
+- "Statement upload karo"
+- "Scan my statement"
+
+==================================================
 AMBIGUOUS & NON-FINANCIAL QUERIES
 ==================================================
 - If the user's intent genuinely cannot be determined (e.g. "Is it okay?", "what about that?", "should I do it?"), request clarification.
-- If the question is completely unrelated to personal finances (e.g. weather, sports, trivia, programming), politely decline stating FinSight only handles personal finances.
+- If the question is completely unrelated to personal finances, fraud safety, or app navigation (e.g. weather, sports, trivia, programming), politely decline stating FinSight only handles personal finances, scam safety, and financial navigation.
 - NEVER invent financial numbers, user IDs, or goal IDs.
 """
 
@@ -227,7 +375,13 @@ SUPPORTED_FUNCTIONS = {
     "check_affordability",
     "project_goal_completion",
     "get_insights",
+    "check_scam_message",
+    "sync_bank",
+    "read_recent_transactions",
+    "read_goals",
+    "upload_document",
 }
+
 
 
 def _parse_amount_value(raw_val: Any) -> Optional[float]:
@@ -476,6 +630,66 @@ def route_query(
             elif func_name == "get_spending_summary":
                 if "period" not in args or not args["period"]:
                     args["period"] = "this_month"
+
+            # 4. check_scam_message validation & context resolution
+            elif func_name == "check_scam_message":
+                msg_text = (args.get("message") or "").strip()
+                if not msg_text:
+                    # Check if previous context was awaiting scam message clarification
+                    if (
+                        context.get("status") == "awaiting_clarification"
+                        and context.get("intent") == "check_scam_message"
+                    ):
+                        msg_text = query.strip()
+                    else:
+                        # Check if the query itself is a message or just a generic inquiry
+                        q_lower = query.lower().strip()
+                        is_generic_inquiry = q_lower in (
+                            "can you check a message for me?",
+                            "can you check a message for me",
+                            "can you check a message?",
+                            "can you check a message",
+                            "can you check if a message is a scam?",
+                            "can you check if a message is a scam",
+                            "can you check if this message is a scam?",
+                            "can you check if this message is a scam",
+                            "check a message for me",
+                            "check a message",
+                            "is this a scam?",
+                            "is this a scam",
+                            "check this message",
+                            "check this sms",
+                            "does this look suspicious?",
+                            "is this suspicious?",
+                        )
+                        if is_generic_inquiry:
+                            return {
+                                "status": "clarification_needed",
+                                "question": "Sure — please paste the message or SMS you'd like me to check.",
+                                "intent": "check_scam_message",
+                                "extracted_parameters": {},
+                                "missing_parameters": ["message"],
+                            }
+                        else:
+                            # Strip leading command prefixes like "Is this a scam?", "Check this message for fraud:"
+                            cleaned_msg = re.sub(
+                                r"^(?:is this a scam\??|check this message for fraud:?|check this sms for fraud:?|check this message:?|check this:?|is this suspicious\??)\s*",
+                                "",
+                                query,
+                                flags=re.IGNORECASE,
+                            ).strip()
+                            msg_text = cleaned_msg if cleaned_msg else query.strip()
+
+                if not msg_text:
+                    return {
+                        "status": "clarification_needed",
+                        "question": "Sure — please paste the message or SMS you'd like me to check.",
+                        "intent": "check_scam_message",
+                        "extracted_parameters": {},
+                        "missing_parameters": ["message"],
+                    }
+
+                args["message"] = msg_text
 
             # Inject user_id into arguments via Python (never generated by LLM)
             args["user_id"] = user_id

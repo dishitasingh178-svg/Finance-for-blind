@@ -256,3 +256,56 @@ def assess_scam_message(
         return _build_safe_error_response("model output could not be parsed as valid JSON")
     except Exception as e:
         return _build_safe_error_response(f"AI service error ({str(e)})")
+
+
+def format_scam_conversational_response(scam_result: Dict[str, Any]) -> str:
+    """
+    Translates structured scam assessment into a natural, voice-friendly, and accessible response.
+    Includes risk level, grounded indicators (why), actionable protective steps, and limitations disclaimer.
+    """
+    risk_level = str(scam_result.get("risk_level", "medium")).upper().strip()
+    looks_suspicious = bool(scam_result.get("looks_suspicious", False))
+    indicators = scam_result.get("indicators", [])
+    explanation = scam_result.get("explanation", "")
+    actions = scam_result.get("recommended_actions", [])
+    limitations = scam_result.get(
+        "limitations",
+        DEFAULT_LIMITATIONS,
+    )
+
+    lines: List[str] = []
+
+    # 1. Headline
+    if risk_level == "HIGH":
+        lines.append("⚠️ This message looks highly suspicious.")
+    elif risk_level == "MEDIUM" or looks_suspicious:
+        lines.append("⚠️ This message looks suspicious or ambiguous.")
+    else:
+        lines.append("✅ This message does not show obvious scam patterns.")
+
+    # 2. Risk Level
+    lines.append(f"\nRisk Level: {risk_level}")
+
+    # 3. Why / Grounded Indicators
+    if indicators:
+        lines.append("\nWhy:")
+        for ind in indicators:
+            ind_type = str(ind.get("type", "pattern")).replace("_", " ")
+            evidence = str(ind.get("evidence", "")).strip()
+            if evidence:
+                lines.append(f"• {ind_type.title()}: \"{evidence}\"")
+            else:
+                lines.append(f"• {ind_type.title()} pattern detected.")
+    elif explanation:
+        lines.append(f"\nWhy:\n• {explanation}")
+
+    # 4. What you should do
+    if actions:
+        lines.append("\nWhat you should do:")
+        for act in actions:
+            lines.append(f"• {act}")
+
+    # 5. Limitations disclaimer
+    lines.append(f"\nImportant: {limitations}")
+
+    return "\n".join(lines)

@@ -95,8 +95,70 @@ def build_dynamic_mock_router(query: str, context: Optional[Dict[str, Any]] = No
                 mock_client.chat.completions.create.return_value = mock_response
                 return mock_client
 
-    # 1. Insights / Trends / Why / Anomalies
+        elif prev_intent == "check_scam_message":
+            mock_tool_call = MagicMock()
+            mock_tool_call.function.name = "check_scam_message"
+            mock_tool_call.function.arguments = json.dumps({"message": query})
+            mock_message.tool_calls = [mock_tool_call]
+            mock_message.content = None
+            mock_choice.message = mock_message
+            mock_response = MagicMock()
+            mock_response.choices = [mock_choice]
+            mock_client.chat.completions.create.return_value = mock_response
+            return mock_client
+
+    # 0. Scam & Fraud Safety Checker (PROTECT)
     if (
+        "scam" in q_lower
+        or "fraud" in q_lower
+        or "suspicious" in q_lower
+        or "phish" in q_lower
+        or "check this message" in q_lower
+        or "check a message" in q_lower
+        or "check this sms" in q_lower
+        or ("otp" in q_lower and ("send" in q_lower or "blocked" in q_lower or "share" in q_lower or "immediately" in q_lower))
+        or "kyc is suspended" in q_lower
+        or "account will be blocked" in q_lower
+    ):
+        is_generic = q_lower.strip() in (
+            "can you check a message for me?",
+            "can you check a message for me",
+            "can you check a message?",
+            "can you check a message",
+            "can you check if a message is a scam?",
+            "can you check if a message is a scam",
+            "can you check if this message is a scam?",
+            "can you check if this message is a scam",
+            "check a message for me",
+            "check a message",
+            "is this a scam?",
+            "is this a scam",
+            "check this message",
+            "does this look suspicious?",
+            "is this suspicious?",
+        )
+        if is_generic:
+            mock_tool_call = MagicMock()
+            mock_tool_call.function.name = "check_scam_message"
+            mock_tool_call.function.arguments = json.dumps({})
+            mock_message.tool_calls = [mock_tool_call]
+            mock_message.content = None
+        else:
+            cleaned_msg = re.sub(
+                r"^(?:is this a scam\??|check this message for fraud:?|check this sms for fraud:?|check this message:?|check this:?|is this suspicious\??)\s*",
+                "",
+                query,
+                flags=re.IGNORECASE,
+            ).strip()
+            msg_to_check = cleaned_msg if cleaned_msg else query
+            mock_tool_call = MagicMock()
+            mock_tool_call.function.name = "check_scam_message"
+            mock_tool_call.function.arguments = json.dumps({"message": msg_to_check})
+            mock_message.tool_calls = [mock_tool_call]
+            mock_message.content = None
+
+    # 1. Insights / Trends / Why / Anomalies
+    elif (
         "why" in q_lower
         or "insight" in q_lower
         or "trend" in q_lower
@@ -220,6 +282,72 @@ def build_dynamic_mock_router(query: str, context: Optional[Dict[str, Any]] = No
     ):
         mock_tool_call = MagicMock()
         mock_tool_call.function.name = "get_balance"
+        mock_tool_call.function.arguments = json.dumps({})
+        mock_message.tool_calls = [mock_tool_call]
+        mock_message.content = None
+
+    # 6. UI Control: sync_bank
+    elif (
+        "sync" in q_lower
+        or "refresh my account" in q_lower
+        or "refresh account" in q_lower
+        or "update my bank" in q_lower
+        or "bank update" in q_lower
+        or "bank refresh" in q_lower
+        or "sync karo" in q_lower
+        or "update kar do" in q_lower
+    ):
+        mock_tool_call = MagicMock()
+        mock_tool_call.function.name = "sync_bank"
+        mock_tool_call.function.arguments = json.dumps({})
+        mock_message.tool_calls = [mock_tool_call]
+        mock_message.content = None
+
+    # 7. UI Control: read_recent_transactions
+    elif (
+        ("read" in q_lower and "transaction" in q_lower)
+        or "recent transaction" in q_lower
+        or "last transaction" in q_lower
+        or "transactions kya hai" in q_lower
+        or "transaction kya hai" in q_lower
+        or "transactions sunao" in q_lower
+        or "show my recent transactions" in q_lower
+        or "show recent transactions" in q_lower
+        or "what did i spend recently" in q_lower
+    ):
+        mock_tool_call = MagicMock()
+        mock_tool_call.function.name = "read_recent_transactions"
+        mock_tool_call.function.arguments = json.dumps({})
+        mock_message.tool_calls = [mock_tool_call]
+        mock_message.content = None
+
+    # 8. UI Control: read_goals
+    elif (
+        ("read" in q_lower and "goal" in q_lower)
+        or "tell me my goal" in q_lower
+        or "tell me my goals" in q_lower
+        or "goal progress kya hai" in q_lower
+        or "goals sunao" in q_lower
+        or "show my goals" in q_lower
+        or "show goals" in q_lower
+        or "mera goal" in q_lower
+    ):
+        mock_tool_call = MagicMock()
+        mock_tool_call.function.name = "read_goals"
+        mock_tool_call.function.arguments = json.dumps({})
+        mock_message.tool_calls = [mock_tool_call]
+        mock_message.content = None
+
+    # 9. UI Control: upload_document
+    elif (
+        ("upload" in q_lower and ("document" in q_lower or "statement" in q_lower or "file" in q_lower or "bank statement" in q_lower))
+        or ("scan" in q_lower and ("statement" in q_lower or "document" in q_lower))
+        or "statement scan karo" in q_lower
+        or "statement upload karo" in q_lower
+        or "scan karo" in q_lower
+    ):
+        mock_tool_call = MagicMock()
+        mock_tool_call.function.name = "upload_document"
         mock_tool_call.function.arguments = json.dumps({})
         mock_message.tool_calls = [mock_tool_call]
         mock_message.content = None

@@ -29,6 +29,7 @@ from backend.models.goal import Goal
 from backend.models.user import User
 from ai.explainer import explain_result
 from ai.intent_router import route_query
+from ai.scam_checker import assess_scam_message, format_scam_conversational_response
 
 PRODUCTION_ENGINE_REGISTRY: Dict[str, Callable[..., Any]] = {
     "get_balance": real_engine.get_balance,
@@ -246,9 +247,74 @@ def run_finSight_pipeline(
 
 
 
-        # 4. Invoke Deterministic Financial Engine
+        # 4. Handle PROTECT Scam Safety Checker (Independent of Financial Engine)
         func_name = router_result.get("function_name", "")
         args = router_result.get("arguments", {})
+
+        if func_name == "check_scam_message":
+            msg_text = (args.get("message") or "").strip()
+            if not msg_text and context.get("status") == "awaiting_clarification" and context.get("intent") == "check_scam_message":
+                msg_text = query.strip()
+
+            if not msg_text:
+                clarification_msg = "Sure — please paste the message or SMS you'd like me to check."
+                return {
+                    "answer_text": clarification_msg,
+                    "structured_data": {
+                        "status": "clarification_needed",
+                        "question": clarification_msg,
+                    },
+                    "conversation_status": "awaiting_clarification",
+                    "intent": "check_scam_message",
+                    "parameters": {},
+                    "missing_parameters": ["message"],
+                    "clarification_question": clarification_msg,
+                    "execution_mode": execution_mode,
+                }
+
+            scam_client = explainer_client or router_client
+            scam_result = assess_scam_message(
+                message=msg_text,
+                client=scam_client,
+                model=model,
+            )
+            answer_text = format_scam_conversational_response(scam_result)
+            return {
+                "answer_text": answer_text,
+                "structured_data": scam_result,
+                "conversation_status": "completed",
+                "intent": "check_scam_message",
+                "parameters": {"message": msg_text},
+                "missing_parameters": [],
+                "execution_mode": execution_mode,
+            }
+
+        # 5. Handle UI Control & Accessibility Intents (Independent of Financial Engine)
+        UI_CONTROL_INTENTS = {
+            "sync_bank": "Syncing your bank accounts now to refresh your latest transactions.",
+            "read_recent_transactions": "Reading your recent transactions.",
+            "read_goals": "Reading your active financial goals and savings progress.",
+            "upload_document": "Opening document upload to scan and import your statement.",
+        }
+
+        if func_name in UI_CONTROL_INTENTS:
+            answer_text = UI_CONTROL_INTENTS[func_name]
+            structured_data = {
+                "action": func_name,
+                "intent": func_name,
+                "status": "success",
+            }
+            return {
+                "answer_text": answer_text,
+                "structured_data": structured_data,
+                "conversation_status": "completed",
+                "intent": func_name,
+                "parameters": args,
+                "missing_parameters": [],
+                "execution_mode": execution_mode,
+            }
+
+        # 6. Invoke Deterministic Financial Engine
         registry = engine_registry or PRODUCTION_ENGINE_REGISTRY
         engine_fn = registry.get(func_name)
 
