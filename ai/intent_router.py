@@ -292,7 +292,8 @@ def get_llm_client() -> OpenAI:
     """Initialize OpenAI-compatible client from environment variables."""
     api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "dummy_key_for_mocking"
     base_url = os.getenv("LLM_BASE_URL") or None
-    return OpenAI(api_key=api_key, base_url=base_url)
+    return OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
+
 
 
 def route_query(
@@ -341,18 +342,23 @@ def route_query(
     context = context or {}
     llm_model = model or os.getenv("LLM_MODEL", "gpt-4o-mini")
 
+    # Build messages array with conversational history if present
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if context.get("last_user_query") and context.get("last_clarification_question"):
+        messages.append({"role": "user", "content": str(context["last_user_query"])})
+        messages.append({"role": "assistant", "content": str(context["last_clarification_question"])})
+    messages.append({"role": "user", "content": query})
+
     try:
         llm_client = client or get_llm_client()
         response = llm_client.chat.completions.create(
             model=llm_model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": query},
-            ],
+            messages=messages,
             tools=FINSIGHT_TOOLS,
             tool_choice="auto",
             temperature=0.0,
         )
+
 
         choice = response.choices[0]
         message = choice.message
@@ -392,17 +398,26 @@ def route_query(
                 raw_amount = args.get("amount")
                 amount = _parse_amount_value(raw_amount)
                 if amount is None or amount <= 0:
+                    item_desc = args.get("item_description") or context.get("parameters", {}).get("item_description")
+                    clean_params = {"item_description": item_desc} if item_desc else {}
                     return {
                         "status": "clarification_needed",
                         "question": "How much does the item cost?",
+                        "intent": "check_affordability",
+                        "extracted_parameters": clean_params,
+                        "missing_parameters": ["amount"],
                     }
                 args["amount"] = amount
+                # Carry forward previous item_description from context if omitted in follow-up
+                if not args.get("item_description") and context.get("parameters", {}).get("item_description"):
+                    args["item_description"] = context["parameters"]["item_description"]
 
             # 2. project_goal_completion validation & goal_id resolution
             elif func_name == "project_goal_completion":
                 goal_name_or_id = (
                     args.get("goal_name")
                     or args.get("goal_name_or_id")
+                    or context.get("parameters", {}).get("goal_name")
                     or ""
                 ).strip()
 
@@ -411,6 +426,8 @@ def route_query(
                 # Check if goal_id directly exists in context
                 if "goal_id" in context and context["goal_id"]:
                     resolved_goal_id = context["goal_id"]
+                elif "parameters" in context and context["parameters"].get("goal_id"):
+                    resolved_goal_id = context["parameters"]["goal_id"]
                 elif "goals" in context and isinstance(context["goals"], dict) and goal_name_or_id:
                     goals_dict = context["goals"]
                     if goal_name_or_id in goals_dict:
@@ -430,9 +447,16 @@ def route_query(
 
                 # If no goal could be resolved from context/input, request clarification (never invent one)
                 if not resolved_goal_id and not goal_name_or_id:
+                    clean_params = {}
+                    hypo = args.get("hypothetical_contribution") or context.get("parameters", {}).get("hypothetical_contribution")
+                    if hypo:
+                        clean_params["hypothetical_contribution"] = hypo
                     return {
                         "status": "clarification_needed",
                         "question": "Which savings goal would you like me to check?",
+                        "intent": "project_goal_completion",
+                        "extracted_parameters": clean_params,
+                        "missing_parameters": ["goal_name_or_id"],
                     }
 
                 # Construct clean arguments
@@ -442,9 +466,11 @@ def route_query(
                 if goal_name_or_id:
                     clean_args["goal_name"] = goal_name_or_id
 
-                if "hypothetical_contribution" in args and args["hypothetical_contribution"] is not None:
-                    clean_args["hypothetical_contribution"] = args["hypothetical_contribution"]
+                hypo_contrib = args.get("hypothetical_contribution") or context.get("parameters", {}).get("hypothetical_contribution")
+                if hypo_contrib is not None:
+                    clean_args["hypothetical_contribution"] = hypo_contrib
                 args = clean_args
+
 
             # 3. get_spending_summary default period handling
             elif func_name == "get_spending_summary":

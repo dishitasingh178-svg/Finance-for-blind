@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinSight — AI Financial Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="app-title">FinSight <span class="badge beta">Copilot</span></h1>
+          <p class="app-subtitle">AI Assistant for Visually Impaired Users</p>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Debug / Runtime Status Badges -->
+        <div class="meta-badges">
+          <span class="meta-badge user" id="userBadge" title="Active Test User">
+            <span class="dot"></span> User: Aarav (ID: 1)
+          </span>
+          <span class="meta-badge mode" id="executionBadge" title="AI Execution Engine">
+            Mode: <strong id="executionModeText">READY</strong>
+          </span>
+          <span class="meta-badge conv" id="convBadge" title="Multi-Turn Conversation State">
+            State: <strong id="convStatusText">New</strong>
+          </span>
+        </div>
+
+        <button class="btn btn-secondary" id="newChatBtn" title="Clear conversation memory and start fresh">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          New Chat
+        </button>
+      </div>
+    </header>
+
+    <!-- Quick Prompts Bar -->
+    <div class="quick-prompts-bar">
+      <span class="quick-title">Quick Queries:</span>
+      <button class="chip" data-query="What's my balance?">💰 Balance</button>
+      <button class="chip" data-query="Can I afford headphones?">🎧 Affordability (Turn 1)</button>
+      <button class="chip" data-query="8k">⚡ 8k (Turn 2 Follow-up)</button>
+      <button class="chip" data-query="Can I buy something worth eight thousand rupees?">🗣️ Natural Language 8k</button>
+      <button class="chip" data-query="How much did I spend on food this month?">🍔 Food Spending</button>
+      <button class="chip" data-query="When will I reach my savings goal?">🎯 Savings Goal</button>
+    </div>
+
+    <!-- Active Session Banner -->
+    <div class="session-info-bar" id="sessionInfoBar">
+      <div class="session-info-text">
+        <span class="label">Session ID:</span>
+        <code id="sessionIdDisplay">None (Fresh)</code>
+      </div>
+      <div class="session-actions">
+        <span id="sessionStatusIndicator" class="status-pill active">Idle</span>
+      </div>
+    </div>
+
+    <!-- Chat Messages Container -->
+    <main class="chat-container" id="chatContainer" aria-live="polite" aria-label="Conversation Messages">
+      <!-- Welcome Message -->
+      <div class="message-wrapper assistant">
+        <div class="avatar assistant-avatar">FS</div>
+        <div class="message-content">
+          <div class="message-bubble">
+            <p>Hello! I am <strong>FinSight</strong>, your personal finance copilot. You can ask me questions about your account balance, spending breakdown, savings goals, or whether you can afford a purchase.</p>
+            <p class="bubble-tip">💡 <em>Tip: Multi-turn dialogue is supported! Try asking "Can I afford headphones?" followed by "8k".</em></p>
+          </div>
+          <div class="message-meta">
+            <span class="timestamp" id="initTime">Just now</span>
+            <span class="engine-tag">System Ready</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Typing Indicator -->
+    <div class="typing-indicator-wrapper" id="typingIndicator" style="display: none;">
+      <div class="avatar assistant-avatar">FS</div>
+      <div class="typing-bubble">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </div>
+      <span class="typing-text">Analyzing finances with deterministic engine...</span>
+    </div>
+
+    <!-- Input Form -->
+    <footer class="app-footer">
+      <form class="chat-form" id="chatForm">
+        <div class="input-wrapper">
+          <input 
+            type="text" 
+            id="chatInput" 
+            class="chat-input" 
+            placeholder="Ask a financial question... (e.g. Can I afford headphones for 8k?)" 
+            autocomplete="off"
+            aria-label="Financial Question Input"
+          />
+          <button type="submit" class="btn btn-primary send-btn" id="sendBtn" aria-label="Send message">
+            <span>Send</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      </form>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

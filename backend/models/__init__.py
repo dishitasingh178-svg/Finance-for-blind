@@ -14,6 +14,7 @@ from backend.models.transaction import (
 from backend.models.goal import Goal, VALID_GOAL_STATUSES
 from backend.models.bill import Bill, VALID_BILL_STATUSES
 from backend.models.document import Document
+from backend.models.conversation import ConversationSession, VALID_CONVERSATION_STATUSES
 
 __all__ = [
     "Base",
@@ -23,9 +24,12 @@ __all__ = [
     "Goal",
     "Bill",
     "Document",
+    "ConversationSession",
     "DEFAULT_ACCESSIBILITY_PREFS",
     "VALID_TRANSACTION_TYPES",
     "VALID_CATEGORIES",
     "VALID_GOAL_STATUSES",
     "VALID_BILL_STATUSES",
+    "VALID_CONVERSATION_STATUSES",
 ]
+

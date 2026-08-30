@@ -43,13 +43,57 @@ from backend.seed.generate_synthetic_data import seed_database
 load_dotenv()
 
 
-def build_dynamic_mock_router(query: str) -> MagicMock:
+def build_dynamic_mock_router(query: str, context: Optional[Dict[str, Any]] = None) -> MagicMock:
     """Dynamically builds mock OpenAI router client when no live API key is set."""
     mock_client = MagicMock()
     mock_choice = MagicMock()
     mock_message = MagicMock()
 
     q_lower = query.lower()
+    ctx = context or {}
+
+    # Contextual resolution for awaiting clarification follow-ups
+    if ctx.get("status") == "awaiting_clarification":
+        prev_intent = ctx.get("intent")
+        if prev_intent == "check_affordability":
+            amount = _parse_amount_value(query)
+            if amount and amount > 0:
+                item_desc = ctx.get("parameters", {}).get("item_description", "item")
+                mock_tool_call = MagicMock()
+                mock_tool_call.function.name = "check_affordability"
+                mock_tool_call.function.arguments = json.dumps({"amount": amount, "item_description": item_desc})
+                mock_message.tool_calls = [mock_tool_call]
+                mock_message.content = None
+                mock_choice.message = mock_message
+                mock_response = MagicMock()
+                mock_response.choices = [mock_choice]
+                mock_client.chat.completions.create.return_value = mock_response
+                return mock_client
+
+        elif prev_intent == "project_goal_completion":
+            if (
+                "emergency" in q_lower
+                or "saving" in q_lower
+                or "vacation" in q_lower
+                or "fund" in q_lower
+                or "goal" in q_lower
+                or "my" in q_lower
+            ):
+                goal_name = "emergency fund"
+                if "vacation" in q_lower:
+                    goal_name = "vacation"
+                elif "savings goal" in q_lower:
+                    goal_name = "savings goal"
+                mock_tool_call = MagicMock()
+                mock_tool_call.function.name = "project_goal_completion"
+                mock_tool_call.function.arguments = json.dumps({"goal_name": goal_name})
+                mock_message.tool_calls = [mock_tool_call]
+                mock_message.content = None
+                mock_choice.message = mock_message
+                mock_response = MagicMock()
+                mock_response.choices = [mock_choice]
+                mock_client.chat.completions.create.return_value = mock_response
+                return mock_client
 
     # 1. Insights / Trends / Why / Anomalies
     if (
@@ -64,6 +108,7 @@ def build_dynamic_mock_router(query: str) -> MagicMock:
         or "spike" in q_lower
         or "noticed about my spending" in q_lower
     ):
+
         mock_tool_call = MagicMock()
         mock_tool_call.function.name = "get_insights"
         mock_tool_call.function.arguments = json.dumps({})
@@ -74,11 +119,14 @@ def build_dynamic_mock_router(query: str) -> MagicMock:
     elif (
         "afford" in q_lower
         or "buy" in q_lower
-        or "purchase" in q_lower
+        or "bought" in q_lower
+        or "purchas" in q_lower
         or "can i get" in q_lower
         or "can get" in q_lower
+        or "getting a" in q_lower
         or "would a " in q_lower
         or "would buying" in q_lower
+        or "affect my finances" in q_lower
         or ("spend" in q_lower and ("can i" in q_lower or "should i" in q_lower or "would" in q_lower or "enough for" in q_lower or "okay if" in q_lower or "want to spend" in q_lower))
     ):
         amount = _parse_amount_value(query)

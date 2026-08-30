@@ -226,6 +226,7 @@ class AskRequest(BaseModel):
     """Request payload for conversational AI financial assistant."""
     user_id: int = Field(..., description="ID of the user asking the question")
     query: str = Field(..., min_length=1, description="Natural language personal finance question")
+    conversation_id: Optional[str] = Field(None, description="Optional conversation session ID for multi-turn dialogues")
     context: Optional[Dict[str, Any]] = Field(None, description="Optional conversation or application context")
 
 
@@ -233,6 +234,30 @@ class AskResponse(BaseModel):
     """Response model containing grounded natural-language answer and structured engine facts."""
     answer_text: str = Field(..., description="Grounded natural-language spoken response")
     structured_data: Any = Field(..., description="Authoritative structured data returned by deterministic engine")
+    conversation_id: Optional[str] = Field(None, description="Active conversation session ID")
+    conversation_status: Optional[str] = Field("active", description="Current conversation state (active, awaiting_clarification, completed)")
+    execution_mode: Optional[str] = Field(None, description="Safe runtime indicator (REAL_LLM or MOCK_FALLBACK)")
 
 
+# --- PROTECT Pillar (Scam & Fraud Safety) Schemas ---
 
+class ScamIndicator(BaseModel):
+    """Specific suspicious pattern indicator detected in a message."""
+    type: str = Field(..., description="Category of indicator (e.g. urgency, otp_request, fake_reward, suspicious_link, kyc_threat, impersonation)")
+    evidence: str = Field(..., description="Exact quoted or paraphrased evidence from the message text")
+
+
+class ScamCheckRequest(BaseModel):
+    """Request payload for scam safety check."""
+    message: str = Field(..., min_length=1, description="Message text or SMS to analyze for scam/fraud patterns")
+    user_id: Optional[int] = Field(None, description="Optional user ID for context or logging")
+
+
+class ScamCheckResponse(BaseModel):
+    """Response model for pattern-based scam safety assessment."""
+    risk_level: str = Field(..., description="Risk category: 'low', 'medium', or 'high'")
+    looks_suspicious: bool = Field(..., description="Whether the message exhibits suspicious scam or fraud patterns")
+    indicators: List[ScamIndicator] = Field(default_factory=list, description="List of detected scam indicators and grounded evidence")
+    explanation: str = Field(..., description="Short explanation grounded strictly in the supplied message")
+    recommended_actions: List[str] = Field(default_factory=list, description="Actionable safety guidance for the user")
+    limitations: str = Field(..., description="Explicit disclaimer clarifying this is a pattern-based AI assessment, not a deterministic fraud verification system")

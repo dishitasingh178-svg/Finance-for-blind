@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db import get_db, init_db
-from backend.routers import dashboard, transactions, goals, bank, statements, ai
+from backend.routers import dashboard, transactions, goals, bank, statements, ai, protect
 
 
 @asynccontextmanager
@@ -38,15 +38,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import os
+from fastapi.staticfiles import StaticFiles
+
 # Register Routers
 app.include_router(ai.router)
+app.include_router(protect.router)
 app.include_router(dashboard.router)
 app.include_router(transactions.router)
 app.include_router(goals.router)
 app.include_router(bank.router)
 app.include_router(statements.router)
-
-
 
 @app.get("/health", status_code=status.HTTP_200_OK, tags=["Health"])
 @app.get("/api/v1/health", status_code=status.HTTP_200_OK, tags=["Health"])
@@ -66,6 +68,13 @@ def health_check(db: Session = Depends(get_db)):
         "version": "0.1.0",
         "database": db_status,
     }
+
+
+# Mount frontend static directory if present (after all API routes)
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+if os.path.exists(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+
 
 
 if __name__ == "__main__":

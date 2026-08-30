@@ -74,7 +74,8 @@ def get_llm_client() -> OpenAI:
     """Initialize OpenAI-compatible client from environment variables."""
     api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "dummy_key_for_mocking"
     base_url = os.getenv("LLM_BASE_URL") or None
-    return OpenAI(api_key=api_key, base_url=base_url)
+    return OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
+
 
 
 def _extract_numbers_from_obj(obj: Any) -> Set[float]:

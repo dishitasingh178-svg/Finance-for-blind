@@ -180,10 +180,13 @@ def run_finSight_pipeline(
         api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
         has_live_key = bool(api_key and api_key not in ("your_api_key_here", "dummy_key_for_mocking"))
 
+        is_real_llm = bool(has_live_key and (router_client is None or not hasattr(router_client, "_mock_return_value")))
+        execution_mode = "REAL_LLM" if is_real_llm else "MOCK_FALLBACK"
+
         active_router_client = router_client
         if active_router_client is None and not has_live_key:
             from ai.live_demo import build_dynamic_mock_router
-            active_router_client = build_dynamic_mock_router(query)
+            active_router_client = build_dynamic_mock_router(query, context=context_dict)
 
         # 1. Intent Routing
         router_user_id_str = str(resolved_user_id if resolved_user_id is not None else user_id)
@@ -197,6 +200,22 @@ def run_finSight_pipeline(
 
         status = router_result.get("status")
 
+        # Fallback to dynamic mock router if live LLM call encountered a network/503 error
+        if status == "error" and is_real_llm:
+            from ai.live_demo import build_dynamic_mock_router
+            fallback_client = build_dynamic_mock_router(query, context=context_dict)
+            fallback_result = route_query(
+                query=query,
+                user_id=router_user_id_str,
+                context=context_dict,
+                client=fallback_client,
+                model=model,
+            )
+            if fallback_result.get("status") in ("success", "clarification_needed"):
+                router_result = fallback_result
+                status = router_result.get("status")
+                execution_mode = "MOCK_FALLBACK"
+
         # 2. Handle Clarification / Non-financial queries
         if status == "clarification_needed":
             clarification_msg = router_result.get(
@@ -205,6 +224,12 @@ def run_finSight_pipeline(
             return {
                 "answer_text": clarification_msg,
                 "structured_data": router_result,
+                "conversation_status": "awaiting_clarification",
+                "intent": router_result.get("intent"),
+                "parameters": router_result.get("extracted_parameters", {}),
+                "missing_parameters": router_result.get("missing_parameters", []),
+                "clarification_question": clarification_msg,
+                "execution_mode": execution_mode,
             }
 
         # 3. Handle Router Errors
@@ -215,7 +240,11 @@ def run_finSight_pipeline(
             return {
                 "answer_text": "I encountered an issue processing your request.",
                 "structured_data": router_result,
+                "conversation_status": "active",
+                "execution_mode": execution_mode,
             }
+
+
 
         # 4. Invoke Deterministic Financial Engine
         func_name = router_result.get("function_name", "")
@@ -349,10 +378,29 @@ def run_finSight_pipeline(
             "answer_text", "I don't have that information available."
         )
 
+        if (not answer_text or "Unable to generate explanation" in answer_text) and is_real_llm:
+            from ai.live_demo import build_dynamic_mock_explainer
+            fallback_explainer = build_dynamic_mock_explainer(engine_result, query)
+            fallback_exp = explain_result(
+                engine_result=engine_result,
+                user_question=query,
+                client=fallback_explainer,
+                model=model,
+            )
+            if fallback_exp.get("answer_text"):
+                answer_text = fallback_exp["answer_text"]
+
         return {
             "answer_text": answer_text,
             "structured_data": engine_result,
+            "conversation_status": "completed",
+            "intent": func_name,
+            "parameters": args,
+            "missing_parameters": [],
+            "execution_mode": execution_mode,
         }
+
+
 
     finally:
         if own_session and active_db is not None:
