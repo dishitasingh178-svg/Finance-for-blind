@@ -261,3 +261,18 @@ class ScamCheckResponse(BaseModel):
     explanation: str = Field(..., description="Short explanation grounded strictly in the supplied message")
     recommended_actions: List[str] = Field(default_factory=list, description="Actionable safety guidance for the user")
     limitations: str = Field(..., description="Explicit disclaimer clarifying this is a pattern-based AI assessment, not a deterministic fraud verification system")
+
+
+# --- Speech-to-Text (STT) Schemas ---
+
+class VoiceTranscribeResponse(BaseModel):
+    """Response model for successful voice audio transcription."""
+    status: str = Field("success", description="Status indicator: 'success' or 'error'")
+    transcript: str = Field(..., description="Verbatim transcribed speech text")
+    language: Optional[str] = Field(None, description="Language code or hint (e.g., 'en', 'hi')")
+
+
+class VoiceTranscribeErrorResponse(BaseModel):
+    """Response model for voice audio transcription failure."""
+    status: str = Field("error", description="Status indicator: 'error'")
+    message: str = Field(..., description="User-friendly error message")

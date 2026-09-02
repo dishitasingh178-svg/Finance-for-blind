@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db import get_db, init_db
-from backend.routers import dashboard, transactions, goals, bank, statements, ai, protect
+from backend.routers import dashboard, transactions, goals, bank, statements, ai, protect, voice
 
 
 @asynccontextmanager
@@ -42,6 +42,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 
 # Register Routers
+app.include_router(voice.router)
 app.include_router(ai.router)
 app.include_router(protect.router)
 app.include_router(dashboard.router)
